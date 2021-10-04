@@ -1,0 +1,25 @@
+<?php $this->extend('block_searchable'); ?>
+
+<?php $this->block('content'); ?>
+<div class="multifile-downloads-link-container" data-ceid="<?= $this->id ?>">
+    <a href="#"><?= $this->trans('CTE.ce_downloads.downloadMultipleFiles') ?></a>
+</div>
+
+<ul>
+    <?php foreach ($this->files as $file): ?>
+    <li class="download-element ext-<?= $file['extension'] ?>">
+        <input class="checkbox" type="checkbox" value="<?= $file['id'] ?>">
+        <a href="<?= $file['href'] ?>" title="<?= $file['title'] ?>" type="<?= $file['mime'] ?>"><?= $file['link'] ?> <span class="size">(<?= $file['filesize'] ?>)</span></a>
+    </li>
+    <?php endforeach; ?>
+</ul>
+
+<div class="multifile-downloads-select-all-container" style="display:none">
+    <a href="#"><?= $this->trans('CTE.ce_downloads.selectAll') ?></a>
+</div>
+
+<div class="multifile-downloads-button-container">
+    <button class="button"><?= $this->trans('CTE.ce_downloads.downloadButton') ?></button>
+</div>
+
+<?php $this->endblock(); ?>

@@ -1,0 +1,54 @@
+{
+    "name": "markocupic/contao-multifile-download",
+    "description": "In combination with the downloads element, this extension enables all files to be downloaded as a ZIP archive.",
+    "keywords": [
+        "contao",
+        "bundle",
+        "content element",
+        "multifile",
+        "download"
+    ],
+    "type": "contao-bundle",
+    "license": "GPL-3.0-or-later",
+    "authors": [
+        {
+            "name": "Marko Cupic",
+            "email": "m.cupic@gmx.ch",
+            "homepage": "https://github.com/markocupic/contao-multifile-download",
+            "role": "Developer"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/markocupic/contao-multifile-download/issues",
+        "source": "https://github.com/markocupic/contao-multifile-download"
+    },
+    "require": {
+        "contao/core-bundle": "^4.9"
+    },
+    "require-dev": {
+        "contao/manager-plugin": "^2.3",
+        "contao/test-case": "^4.0",
+        "phpunit/phpunit": "^8.4",
+        "symfony/http-client": "4.4.*",
+        "symfony/phpunit-bridge": "4.4.*",
+        "contao/easy-coding-standard": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Markocupic\\ContaoMultifileDownload\\": "src/"
+        },
+        "classmap": [
+            "src/Resources/contao"
+        ],
+        "exclude-from-classmap": [
+            "src/Resources/contao/config",
+            "src/Resources/contao/dca",
+            "src/Resources/contao/languages",
+            "src/Resources/contao/templates"
+        ]
+    },
+    "extra": {
+        "contao-manager-plugin": "Markocupic\\ContaoMultifileDownload\\ContaoManager\\Plugin"
+    },
+    "version": "1.1"
+}
