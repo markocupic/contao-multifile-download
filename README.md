@@ -12,10 +12,10 @@ Select multiple files and download them as ZIP archive.
 - In the file picker area you can select one or more files.
 - Now you're done!
 
-Backend:
+**Backend:**
 
 ![Alt text](docs/element_settings.png?raw=true "Element settings")
 
-Frontend:
+**Frontend:**
 
 ![Alt text](docs/frontend.png?raw=true "Frontend")
