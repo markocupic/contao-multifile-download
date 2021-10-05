@@ -1,3 +1,8 @@
+<?php
+$GLOBALS['TL_CSS'][] = 'bundles/markocupiccontaomultifiledownload/ce_downloads_multifile.css|static';
+$GLOBALS['TL_JAVASCRIPT'][] = 'bundles/markocupiccontaomultifiledownload/ce_downloads_multifile.js|static';
+?>
+
 <?php $this->extend('block_searchable'); ?>
 
 <?php $this->block('content'); ?>

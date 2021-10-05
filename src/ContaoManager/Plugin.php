@@ -18,11 +18,7 @@ use Contao\CoreBundle\ContaoCoreBundle;
 use Contao\ManagerPlugin\Bundle\BundlePluginInterface;
 use Contao\ManagerPlugin\Bundle\Config\BundleConfig;
 use Contao\ManagerPlugin\Bundle\Parser\ParserInterface;
-use Contao\ManagerPlugin\Routing\RoutingPluginInterface;
 use Markocupic\ContaoMultifileDownload\MarkocupicContaoMultifileDownload;
-use Symfony\Component\Config\Loader\LoaderResolverInterface;
-use Symfony\Component\HttpKernel\KernelInterface;
-use Symfony\Component\Routing\RouteCollection;
 
 /**
  * Class Plugin.
@@ -32,7 +28,7 @@ class Plugin implements BundlePluginInterface
     /**
      * @return array
      */
-    public function getBundles(ParserInterface $parser)
+    public function getBundles(ParserInterface $parser): array
     {
         return [
             BundleConfig::create(MarkocupicContaoMultifileDownload::class)

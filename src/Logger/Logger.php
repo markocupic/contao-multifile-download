@@ -29,14 +29,14 @@ class Logger
         $this->logger = $logger;
     }
 
-    public function log(string $strText, string $strLevel, string $method): void
+    public function log(string $strText, string $strLogLevel, string $strContaoLogLevel, string $strMethod): void
     {
         if (null !== $this->logger) {
             $this->logger->log(
-                $strLevel,
+                $strLogLevel,
                 $strText,
                 [
-                    'contao' => new ContaoContext($method, $level),
+                    'contao' => new ContaoContext($strMethod, $strContaoLogLevel),
                 ]
             );
         }

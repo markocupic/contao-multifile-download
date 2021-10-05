@@ -19,12 +19,12 @@ use Contao\ContentElement;
 use Contao\ContentModel;
 use Contao\Controller;
 use Contao\CoreBundle\Exception\ResponseException;
+use Contao\CoreBundle\Monolog\ContaoContext;
 use Contao\CoreBundle\ServiceAnnotation\Hook;
 use Contao\Environment;
 use Contao\File;
 use Contao\FilesModel;
 use Contao\FrontendUser;
-use Contao\Input;
 use Contao\StringUtil;
 use Contao\ZipWriter;
 use Markocupic\ContaoMultifileDownload\Logger\Logger;
@@ -32,6 +32,7 @@ use Psr\Log\LogLevel;
 use Symfony\Component\Finder\Finder;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\Security\Core\Security;
@@ -44,6 +45,8 @@ class MultifileDownloadsListener
     public const HOOK = 'getContentElement';
     public const PRIORITY = 10;
     public const ARCHIVE_PATH = 'system/tmp';
+    public const ARCHIVE_NAME_PATTERN = 'downloads_multifile_%s_archive.zip';
+    public const KEEP_FILES = 3600;
 
     /**
      * @var ContentModel
@@ -70,6 +73,11 @@ class MultifileDownloadsListener
     private $security;
 
     /**
+     * @var RequestStack
+     */
+    private $requestStack;
+
+    /**
      * @var string
      */
     private $projectDir;
@@ -79,10 +87,11 @@ class MultifileDownloadsListener
      */
     private $logger;
 
-    public function __construct(Security $security, Logger $logger, string $projectDir)
+    public function __construct(Security $security, Logger $logger, RequestStack $requestStack, string $projectDir)
     {
         $this->security = $security;
         $this->logger = $logger;
+        $this->requestStack = $requestStack;
         $this->projectDir = $projectDir;
     }
 
@@ -91,12 +100,13 @@ class MultifileDownloadsListener
      */
     public function __invoke(ContentModel $objElement, string $strBuffer, ContentElement $element): string
     {
-        if ($this->isAjaxRequest()) {
-            $this->disableCache();
+        $request = $this->requestStack->getCurrentRequest();
+
+        if ((int) $request->query->get('ce_id') === (int) $objElement->id && $this->isAjaxRequest()) {
             $this->sendLanguageData();
         }
 
-        if ('true' === Input::get('zipDownload') && '' !== Input::get('files') && (int) $objElement->id === (int) Input::get('elId')) {
+        if ('true' === $request->query->get('multifile_download') && '' !== $request->query->get('files') && (int) $objElement->id === (int) $request->query->get('el_id')) {
             // Content Element Model
             $this->objElement = $objElement;
 
@@ -105,7 +115,7 @@ class MultifileDownloadsListener
             $this->arrValidFileIDS = $this->getValidFiles();
 
             // Get file IDS from $_GET
-            $arrIds = explode(',', Input::get('files'));
+            $arrIds = explode(',', base64_decode($request->query->get('files'), true));
             $error = 0;
 
             // Validate
@@ -114,21 +124,21 @@ class MultifileDownloadsListener
 
                 if (null === $oFile) {
                     $strText = sprintf('Couldn\'t find file with ID %s in tl_files. System stopped!', $fileId);
-                    $this->logger->log($strText, LogLevel::ERROR, __METHOD__);
+                    $this->logger->log($strText, LogLevel::ERROR, ContaoContext::ERROR, __METHOD__);
                     ++$error;
                     continue;
                 }
 
                 if (!\in_array($fileId, $this->arrValidFileIDS, true)) {
                     $strText = sprintf('User is not allowed to download file ID %s (path: "%s"). System stopped!', $fileId, $oFile->path);
-                    $this->logger->log($strText, LogLevel::ERROR, __METHOD__);
+                    $this->logger->log($strText, LogLevel::ERROR, ContaoContext::ERROR, __METHOD__);
                     ++$error;
                     continue;
                 }
 
                 if (!is_file($this->projectDir.'/'.$oFile->path)) {
-                    $strText = sprintf('File with ID %s (path: "%s") does not exists in the filesystem. System stopped!', $fileId, $oFile->path, );
-                    $this->logger->log($strText, LogLevel::ERROR, __METHOD__);
+                    $strText = sprintf('File with ID %s (path: "%s") does not exists in the filesystem. System stopped!', $fileId, $oFile->path);
+                    $this->logger->log($strText, LogLevel::ERROR, ContaoContext::ERROR, __METHOD__);
                     ++$error;
                     continue;
                 }
@@ -138,7 +148,7 @@ class MultifileDownloadsListener
 
             if ($error > 0 || \count($this->arrFileIDS) < 1) {
                 $strText = 'No valid files selected for the download!';
-                $this->logger->log($strText, LogLevel::ERROR, __METHOD__);
+                $this->logger->log($strText, LogLevel::ERROR, ContaoContext::ERROR, __METHOD__);
                 $response = new Response($strText, Response::HTTP_BAD_REQUEST);
 
                 throw new ResponseException($response);
@@ -156,21 +166,17 @@ class MultifileDownloadsListener
 
     private function isAjaxRequest(): bool
     {
-        if (Environment::get('isAjaxRequest') && Input::get('ceDownloads') && Input::get('loadLanguageData')) {
+        $request = $this->requestStack->getCurrentRequest();
+
+        if (Environment::get('isAjaxRequest') && $request->query->has('ce_downloads') && $request->query->has('load_language_data')) {
             return true;
         }
 
         return false;
     }
 
-    private function disableCache(): void
-    {
-        global $objPage;
-        $objPage->noSearch;
-    }
-
     /**
-     * Sort get valid and allowed files.
+     * @throws \Exception
      */
     private function getValidFiles(): array
     {
@@ -197,7 +203,7 @@ class MultifileDownloadsListener
 
         $files = [];
 
-        $allowedDownload = trimsplit(',', strtolower(Config::get('allowedDownload')));
+        $allowedDownloads = explode(',', strtolower(trim((string) Config::get('allowedDownload'))));
 
         // Get all files
         while ($objFiles->next()) {
@@ -210,7 +216,7 @@ class MultifileDownloadsListener
             if ('file' === $objFiles->type) {
                 $objFile = new File($objFiles->path);
 
-                if (!\in_array($objFile->extension, $allowedDownload, true) || preg_match('/^meta(_[a-z]{2})?\.txt$/', $objFile->basename)) {
+                if (!\in_array($objFile->extension, $allowedDownloads, true) || preg_match('/^meta(_[a-z]{2})?\.txt$/', $objFile->basename)) {
                     continue;
                 }
 
@@ -220,8 +226,8 @@ class MultifileDownloadsListener
                 ];
 
                 $arrValidFileIDS[] = $objFiles->id;
-            } // Folders
-            else {
+            }             else {
+                // Folders
                 $objSubfiles = FilesModel::findByPid($objFiles->uuid);
 
                 if (null === $objSubfiles) {
@@ -234,9 +240,9 @@ class MultifileDownloadsListener
                         continue;
                     }
 
-                    $objFile = new File($objSubfiles->path, true);
+                    $objFile = new File($objSubfiles->path);
 
-                    if (!\in_array($objFile->extension, $allowedDownload, true) || preg_match('/^meta(_[a-z]{2})?\.txt$/', $objFile->basename)) {
+                    if (!\in_array($objFile->extension, $allowedDownloads, true) || preg_match('/^meta(_[a-z]{2})?\.txt$/', $objFile->basename)) {
                         continue;
                     }
 
@@ -281,7 +287,7 @@ class MultifileDownloadsListener
     {
         // Set zip-archive name/path
         $zipTargetPath = sprintf(
-            '%s/downloads_multifile_%s_archive.zip',
+            '%s/'.self::ARCHIVE_NAME_PATTERN,
             self::ARCHIVE_PATH,
             (string) time()
         );
@@ -316,6 +322,7 @@ class MultifileDownloadsListener
     private function deleteOldArchives(): void
     {
         $tmpDir = $this->projectDir.'/'.self::ARCHIVE_PATH;
+        $searchPattern = sprintf('/%s/', str_replace('%s', '(\d+)', self::ARCHIVE_NAME_PATTERN));
 
         if (file_exists($tmpDir)) {
             $finder = (new Finder())
@@ -326,9 +333,12 @@ class MultifileDownloadsListener
 
             if ($finder->hasResults()) {
                 foreach ($finder as $file) {
-                    if ('zip' === $file->getExtension() && 0 === strpos($file->getBasename(), 'downloads_multifile_', )) {
-                        if ($file->getCTime() + 3600 < time()) {
-                            unlink($file->getRealPath());
+                    if (preg_match($searchPattern, $file->getBasename(), $matches)) {
+                        if ((int) $matches[1] + self::KEEP_FILES < time()) {
+                            if (unlink($file->getRealPath())) {
+                                $strText = sprintf('Deleted no more used zip archive "%s".', $file->getRealPath());
+                                $this->logger->log($strText, LogLevel::INFO, ContaoContext::GENERAL, __METHOD__);
+                            }
                         }
                     }
                 }

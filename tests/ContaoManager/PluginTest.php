@@ -42,7 +42,6 @@ class PluginTest extends ContaoTestCase
     {
         $plugin = new Plugin();
 
-        /** @var array $bundles */
         $bundles = $plugin->getBundles(new DelegatingParser());
 
         $this->assertCount(1, $bundles);
