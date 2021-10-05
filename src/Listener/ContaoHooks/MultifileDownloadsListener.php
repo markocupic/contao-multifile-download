@@ -44,7 +44,7 @@ class MultifileDownloadsListener
 {
     public const HOOK = 'getContentElement';
     public const PRIORITY = 10;
-    private const ARCHIVE_PATH = 'system/tmp';
+    private const TEMPORARY_FOLDER = 'system/tmp';
     private const ARCHIVE_NAME_PATTERN = 'downloads_multifile_%s_archive.zip';
     private const KEEP_FILES = 3600;
 
@@ -288,7 +288,7 @@ class MultifileDownloadsListener
         // Set zip-archive name/path
         $zipTargetPath = sprintf(
             '%s/'.self::ARCHIVE_NAME_PATTERN,
-            self::ARCHIVE_PATH,
+            self::TEMPORARY_FOLDER,
             (string) time()
         );
 
@@ -321,7 +321,7 @@ class MultifileDownloadsListener
      */
     private function deleteOldArchives(): void
     {
-        $tmpDir = $this->projectDir.'/'.self::ARCHIVE_PATH;
+        $tmpDir = $this->projectDir.'/'.self::TEMPORARY_FOLDER;
         $searchPattern = sprintf('/%s/', str_replace('%s', '(\d+)', self::ARCHIVE_NAME_PATTERN));
 
         if (file_exists($tmpDir)) {
