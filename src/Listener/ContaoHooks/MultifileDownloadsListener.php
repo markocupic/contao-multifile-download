@@ -44,9 +44,9 @@ class MultifileDownloadsListener
 {
     public const HOOK = 'getContentElement';
     public const PRIORITY = 10;
-    public const ARCHIVE_PATH = 'system/tmp';
-    public const ARCHIVE_NAME_PATTERN = 'downloads_multifile_%s_archive.zip';
-    public const KEEP_FILES = 3600;
+    private const ARCHIVE_PATH = 'system/tmp';
+    private const ARCHIVE_NAME_PATTERN = 'downloads_multifile_%s_archive.zip';
+    private const KEEP_FILES = 3600;
 
     /**
      * @var ContentModel
@@ -226,7 +226,7 @@ class MultifileDownloadsListener
                 ];
 
                 $arrValidFileIDS[] = $objFiles->id;
-            }             else {
+            } else {
                 // Folders
                 $objSubfiles = FilesModel::findByPid($objFiles->uuid);
 
@@ -335,8 +335,9 @@ class MultifileDownloadsListener
                 foreach ($finder as $file) {
                     if (preg_match($searchPattern, $file->getBasename(), $matches)) {
                         if ((int) $matches[1] + self::KEEP_FILES < time()) {
+                            $strText = sprintf('Deleted no more used zip archive "%s".', $file->getRealPath());
+
                             if (unlink($file->getRealPath())) {
-                                $strText = sprintf('Deleted no more used zip archive "%s".', $file->getRealPath());
                                 $this->logger->log($strText, LogLevel::INFO, ContaoContext::GENERAL, __METHOD__);
                             }
                         }
