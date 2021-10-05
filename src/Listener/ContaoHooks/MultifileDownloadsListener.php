@@ -21,7 +21,6 @@ use Contao\Controller;
 use Contao\CoreBundle\Exception\ResponseException;
 use Contao\CoreBundle\Monolog\ContaoContext;
 use Contao\CoreBundle\ServiceAnnotation\Hook;
-use Contao\Environment;
 use Contao\File;
 use Contao\FilesModel;
 use Contao\FrontendUser;
@@ -58,14 +57,14 @@ class MultifileDownloadsListener
      *
      * @var array
      */
-    protected $arrValidFileIDS = [];
+    protected $arrValidFileIds = [];
 
     /**
      * Files to download.
      *
      * @var array
      */
-    protected $arrFileIDS = [];
+    protected $arrFileIds = [];
 
     /**
      * @var Security
@@ -100,53 +99,52 @@ class MultifileDownloadsListener
      */
     public function __invoke(ContentModel $objElement, string $strBuffer, ContentElement $element): string
     {
+        $this->objElement = $objElement;
         $request = $this->requestStack->getCurrentRequest();
 
-        if ((int) $request->query->get('ce_id') === (int) $objElement->id && $this->isAjaxRequest()) {
+        if ($this->isSendLangRequest()) {
             $this->sendLanguageData();
         }
 
-        if ('true' === $request->query->get('multifile_download') && '' !== $request->query->get('files') && (int) $objElement->id === (int) $request->query->get('el_id')) {
-            // Content Element Model
-            $this->objElement = $objElement;
+        if ($this->isDownloadFilesRequest()) {
+            // Get allowed and valid files. Files must have been selected in the content element!
+            $this->arrValidFileIds = $this->getValidFiles();
 
-            // Get allowed and valid files
-            // Files must have been selected in the content element!
-            $this->arrValidFileIDS = $this->getValidFiles();
-
-            // Get file IDS from $_GET
+            // Get file ids from $_GET
             $arrIds = explode(',', base64_decode($request->query->get('files'), true));
-            $error = 0;
 
             // Validate
             foreach ($arrIds as $fileId) {
                 $oFile = FilesModel::findByPk($fileId);
 
                 if (null === $oFile) {
-                    $strText = sprintf('Couldn\'t find file with ID %s in tl_files. System stopped!', $fileId);
+                    $strText = sprintf('Could not find file with ID %s in tl_files. System stopped!', $fileId);
                     $this->logger->log($strText, LogLevel::ERROR, ContaoContext::ERROR, __METHOD__);
-                    ++$error;
-                    continue;
+                    $response = new Response($strText, Response::HTTP_BAD_REQUEST);
+
+                    throw new ResponseException($response);
                 }
 
-                if (!\in_array($fileId, $this->arrValidFileIDS, true)) {
+                if (!\in_array($fileId, $this->arrValidFileIds, true)) {
                     $strText = sprintf('User is not allowed to download file ID %s (path: "%s"). System stopped!', $fileId, $oFile->path);
                     $this->logger->log($strText, LogLevel::ERROR, ContaoContext::ERROR, __METHOD__);
-                    ++$error;
-                    continue;
+                    $response = new Response($strText, Response::HTTP_BAD_REQUEST);
+
+                    throw new ResponseException($response);
                 }
 
                 if (!is_file($this->projectDir.'/'.$oFile->path)) {
                     $strText = sprintf('File with ID %s (path: "%s") does not exists in the filesystem. System stopped!', $fileId, $oFile->path);
                     $this->logger->log($strText, LogLevel::ERROR, ContaoContext::ERROR, __METHOD__);
-                    ++$error;
-                    continue;
+                    $response = new Response($strText, Response::HTTP_BAD_REQUEST);
+
+                    throw new ResponseException($response);
                 }
 
-                $this->arrFileIDS[] = $fileId;
+                $this->arrFileIds[] = $fileId;
             }
 
-            if ($error > 0 || \count($this->arrFileIDS) < 1) {
+            if (empty($this->arrFileIds)) {
                 $strText = 'No valid files selected for the download!';
                 $this->logger->log($strText, LogLevel::ERROR, ContaoContext::ERROR, __METHOD__);
                 $response = new Response($strText, Response::HTTP_BAD_REQUEST);
@@ -154,7 +152,7 @@ class MultifileDownloadsListener
                 throw new ResponseException($response);
             }
 
-            // Delete old/unused zip-archives
+            // Delete old/unused zip-archives in the tmp folder
             $this->deleteOldArchives();
 
             // Send zip archive to the browser
@@ -164,11 +162,24 @@ class MultifileDownloadsListener
         return $strBuffer;
     }
 
-    private function isAjaxRequest(): bool
+    private function isSendLangRequest(): bool
     {
         $request = $this->requestStack->getCurrentRequest();
 
-        if (Environment::get('isAjaxRequest') && $request->query->has('ce_downloads') && $request->query->has('load_language_data')) {
+        if ($request->isXmlHttpRequest() && (int) $request->query->get('ce_id') === (int) $this->objElement->id) {
+            if ($request->query->has('ce_downloads') && $request->query->has('load_language_data')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isDownloadFilesRequest(): bool
+    {
+        $request = $this->requestStack->getCurrentRequest();
+
+        if ('true' === $request->query->get('multifile_download') && '' !== $request->query->get('files') && (int) $this->objElement->id === (int) $request->query->get('el_id')) {
             return true;
         }
 
@@ -180,7 +191,7 @@ class MultifileDownloadsListener
      */
     private function getValidFiles(): array
     {
-        $arrValidFileIDS = [];
+        $arrValidFileIds = [];
 
         // Use the home directory of the current user as file source
         if ($this->objElement->useHomeDir && $this->hasLoggedInFrontendUser()) {
@@ -225,7 +236,7 @@ class MultifileDownloadsListener
                     'id' => $objFiles->id,
                 ];
 
-                $arrValidFileIDS[] = $objFiles->id;
+                $arrValidFileIds[] = $objFiles->id;
             } else {
                 // Folders
                 $objSubfiles = FilesModel::findByPid($objFiles->uuid);
@@ -235,7 +246,7 @@ class MultifileDownloadsListener
                 }
 
                 while ($objSubfiles->next()) {
-                    // Skip subfolders
+                    // Skip subdirectories
                     if ('folder' === $objSubfiles->type) {
                         continue;
                     }
@@ -250,12 +261,12 @@ class MultifileDownloadsListener
                     $files[$objSubfiles->path] = [
                         'id' => $objSubfiles->id,
                     ];
-                    $arrValidFileIDS[] = $objSubfiles->id;
+                    $arrValidFileIds[] = $objSubfiles->id;
                 }
             }
         }
 
-        return $arrValidFileIDS;
+        return $arrValidFileIds;
     }
 
     private function hasLoggedInFrontendUser(): bool
@@ -296,7 +307,7 @@ class MultifileDownloadsListener
         $zip = new ZipWriter($zipTargetPath);
 
         // Add files to zip-archive
-        foreach ($this->arrFileIDS as $id) {
+        foreach ($this->arrFileIds as $id) {
             $objFile = FilesModel::findByPk($id);
 
             if (null !== $objFile) {
