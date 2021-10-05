@@ -1,6 +1,6 @@
 {
     "name": "markocupic/contao-multifile-download",
-    "description": "In combination with the downloads element, this extension enables all files to be downloaded as a ZIP archive.",
+    "description": "Together with the Contao core downloads element, this extension enables all selected files to be downloaded as a ZIP archive.",
     "keywords": [
         "contao",
         "bundle",
