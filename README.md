@@ -1,7 +1,7 @@
 ![Alt text](docs/logo.png?raw=true "logo")
 
-# Contao Multi File Download
-This plugin for the CMS Contao extends the **downloads** content element from the Contao core.\
+# Contao Multi File Download for the Contao CMS
+This plugin for the CMS Contao extends the **downloads** content element from the Contao cCore.\
 Select multiple files and download them as ZIP archive.
 
 ## How to
