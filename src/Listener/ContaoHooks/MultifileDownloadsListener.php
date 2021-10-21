@@ -47,6 +47,8 @@ class MultifileDownloadsListener
     private const ARCHIVE_NAME_PATTERN = 'downloads_multifile_%s_archive.zip';
     private const KEEP_FILES = 3600;
 
+
+
     /**
      * @var ContentModel
      */
@@ -86,6 +88,11 @@ class MultifileDownloadsListener
      */
     private $logger;
 
+    /**
+     * @var bool
+     */
+    private static $disableHook = false;
+
     public function __construct(Security $security, Logger $logger, RequestStack $requestStack, string $projectDir)
     {
         $this->security = $security;
@@ -94,19 +101,27 @@ class MultifileDownloadsListener
         $this->projectDir = $projectDir;
     }
 
+
     /**
+     * @param ContentModel $objElement
+     * @param string $strBuffer
+     * Do not type hint third argument $element
+     * @param $element
+     * @return string
      * @throws \Exception
      */
-    public function __invoke(ContentModel $objElement, string $strBuffer, ContentElement $element): string
+    public function __invoke(ContentModel $objElement, string $strBuffer, $element): string
     {
+        if (static::$disableHook) {
+            return $strBuffer;
+        }
+
         $this->objElement = $objElement;
         $request = $this->requestStack->getCurrentRequest();
 
         if ($this->isSendLangRequest()) {
             $this->sendLanguageData();
-        }
-
-        if ($this->isDownloadFilesRequest()) {
+        } elseif ($this->isDownloadFilesRequest()) {
             // Get allowed and valid files. Files must have been selected in the content element!
             $this->arrValidFileIds = $this->getValidFiles();
 
@@ -160,6 +175,21 @@ class MultifileDownloadsListener
         }
 
         return $strBuffer;
+    }
+
+    public static function disableHook(): void
+    {
+        self::$disableHook = true;
+    }
+
+    public static function enableHook(): void
+    {
+        self::$disableHook = false;
+    }
+
+    public static function isEnabled(): bool
+    {
+        return self::$disableHook;
     }
 
     private function isSendLangRequest(): bool
