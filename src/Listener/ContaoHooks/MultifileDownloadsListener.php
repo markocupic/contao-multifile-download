@@ -15,7 +15,6 @@ declare(strict_types=1);
 namespace Markocupic\ContaoMultifileDownload\Listener\ContaoHooks;
 
 use Contao\Config;
-use Contao\ContentElement;
 use Contao\ContentModel;
 use Contao\Controller;
 use Contao\CoreBundle\Exception\ResponseException;
@@ -23,10 +22,10 @@ use Contao\CoreBundle\Monolog\ContaoContext;
 use Contao\CoreBundle\ServiceAnnotation\Hook;
 use Contao\File;
 use Contao\FilesModel;
-use Contao\FrontendUser;
 use Contao\StringUtil;
 use Contao\ZipWriter;
-use Markocupic\ContaoMultifileDownload\Logger\Logger;
+use Markocupic\ContaoMultifileDownload\Logger;
+use Markocupic\ContaoMultifileDownload\User;
 use Psr\Log\LogLevel;
 use Symfony\Component\Finder\Finder;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -34,7 +33,6 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
-use Symfony\Component\Security\Core\Security;
 
 /**
  * @Hook(MultifileDownloadsListener::HOOK, priority=MultifileDownloadsListener::PRIORITY)
@@ -47,41 +45,10 @@ class MultifileDownloadsListener
     private const ARCHIVE_NAME_PATTERN = 'downloads_multifile_%s_archive.zip';
     private const KEEP_FILES = 3600;
 
-
-
     /**
-     * @var ContentModel
+     * @var User
      */
-    protected $objElement;
-
-    /**
-     * Files that are selected in the content element.
-     *
-     * @var array
-     */
-    protected $arrValidFileIds = [];
-
-    /**
-     * Files to download.
-     *
-     * @var array
-     */
-    protected $arrFileIds = [];
-
-    /**
-     * @var Security
-     */
-    private $security;
-
-    /**
-     * @var RequestStack
-     */
-    private $requestStack;
-
-    /**
-     * @var string
-     */
-    private $projectDir;
+    private $user;
 
     /**
      * @var Logger
@@ -89,29 +56,56 @@ class MultifileDownloadsListener
     private $logger;
 
     /**
+     * @var RequestStack
+     */
+    private $requestStack;
+
+    /**
+     * @var ContentModel
+     */
+    private $objElement;
+
+    /**
+     * Files that are selected in the content element.
+     *
+     * @var array
+     */
+    private $arrValidFileIds = [];
+
+    /**
+     * Files that will be downloaded.
+     *
+     * @var array
+     */
+    private $arrFileIds = [];
+
+    /**
+     * @var string
+     */
+    private $projectDir;
+
+    /**
      * @var bool
      */
     private static $disableHook = false;
 
-    public function __construct(Security $security, Logger $logger, RequestStack $requestStack, string $projectDir)
+    public function __construct(User $user, Logger $logger, RequestStack $requestStack, string $projectDir)
     {
-        $this->security = $security;
+        $this->user = $user;
         $this->logger = $logger;
         $this->requestStack = $requestStack;
         $this->projectDir = $projectDir;
     }
 
-
     /**
-     * @param ContentModel $objElement
-     * @param string $strBuffer
-     * Do not type hint third argument $element
+     * Do not type hint third argument $element.
      * @param $element
-     * @return string
+     *
      * @throws \Exception
      */
     public function __invoke(ContentModel $objElement, string $strBuffer, $element): string
     {
+        // Let the hooks be deactivatable
         if (static::$disableHook) {
             return $strBuffer;
         }
@@ -119,11 +113,17 @@ class MultifileDownloadsListener
         $this->objElement = $objElement;
         $request = $this->requestStack->getCurrentRequest();
 
-        if ($this->isSendLangRequest()) {
-            $this->sendLanguageData();
-        } elseif ($this->isDownloadFilesRequest()) {
-            // Get allowed and valid files. Files must have been selected in the content element!
-            $this->arrValidFileIds = $this->getValidFiles();
+        if ($this->isSendLanguageDataRequest()) {
+            $arrJson = $this->getLanguageData();
+            $response = new JsonResponse($arrJson);
+
+            throw new ResponseException($response);
+        }
+
+        if ($this->isDownloadFilesRequest()) {
+            // Get allowed and valid files.
+            // Files must have been selected in the content element!
+            $this->arrValidFileIds = $this->getValidFileIds();
 
             // Get file ids from $_GET
             $arrIds = explode(',', base64_decode($request->query->get('files'), true));
@@ -192,7 +192,7 @@ class MultifileDownloadsListener
         return self::$disableHook;
     }
 
-    private function isSendLangRequest(): bool
+    private function isSendLanguageDataRequest(): bool
     {
         $request = $this->requestStack->getCurrentRequest();
 
@@ -219,13 +219,13 @@ class MultifileDownloadsListener
     /**
      * @throws \Exception
      */
-    private function getValidFiles(): array
+    private function getValidFileIds(): array
     {
         $arrValidFileIds = [];
 
         // Use the home directory of the current user as file source
-        if ($this->objElement->useHomeDir && $this->hasLoggedInFrontendUser()) {
-            $objUser = $this->getLoggedInFrontendUser();
+        if ($this->objElement->useHomeDir && $this->user->hasLoggedInFrontendUser()) {
+            $objUser = $this->user->getLoggedInFrontendUser();
 
             if ($objUser->assignDir && $objUser->homeDir) {
                 $this->objElement->multiSRC = [$objUser->homeDir];
@@ -299,28 +299,6 @@ class MultifileDownloadsListener
         return $arrValidFileIds;
     }
 
-    private function hasLoggedInFrontendUser(): bool
-    {
-        $user = $this->security->getUser();
-
-        if ($user instanceof FrontendUser) {
-            return true;
-        }
-
-        return false;
-    }
-
-    private function getLoggedInFrontendUser(): ?FrontendUser
-    {
-        $user = $this->security->getUser();
-
-        if ($user instanceof FrontendUser) {
-            return $user;
-        }
-
-        return null;
-    }
-
     /**
      * @throws \Exception
      */
@@ -358,7 +336,7 @@ class MultifileDownloadsListener
     }
 
     /**
-     * Delete zip-archives.
+     * Delete no more used zip-archives.
      */
     private function deleteOldArchives(): void
     {
@@ -388,23 +366,19 @@ class MultifileDownloadsListener
         }
     }
 
-    /**
-     * Send language data.
-     */
-    private function sendLanguageData(): void
+    private function getLanguageData(): array
     {
         Controller::loadLanguageFile('default');
-        $json = ['done' => 'true'];
+        $arrJson = [];
+        $arrJson['done'] = 'true';
         $lang = $GLOBALS['TL_LANG']['CTE']['ce_downloads'];
 
         if ($lang && \is_array($lang)) {
             foreach ($GLOBALS['TL_LANG']['CTE']['ce_downloads'] as $k => $v) {
-                $json[$k] = $v;
+                $arrJson[$k] = $v;
             }
         }
 
-        $response = new JsonResponse($json);
-
-        throw new ResponseException($response);
+        return $arrJson;
     }
 }

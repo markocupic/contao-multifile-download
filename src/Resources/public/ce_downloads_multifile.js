@@ -17,7 +17,7 @@
     if ($('.multifile-downloads-link-container').length) {
       // Download language data from xhr
       let ceElId = $('.multifile-downloads-link-container').first().attr('data-ceid');
-      if(Object.keys(ceDownloadsLang).length === 0) {
+      if (Object.keys(ceDownloadsLang).length === 0) {
         $.ajax({
           url: window.location.href,
           type: 'get',

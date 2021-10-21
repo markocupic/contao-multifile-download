@@ -14,7 +14,8 @@ $GLOBALS['TL_JAVASCRIPT'][] = 'bundles/markocupiccontaomultifiledownload/ce_down
     <?php foreach ($this->files as $file): ?>
     <li class="download-element ext-<?= $file['extension'] ?>">
         <input class="checkbox" type="checkbox" value="<?= $file['id'] ?>">
-        <a href="<?= $file['href'] ?>" title="<?= $file['title'] ?>" type="<?= $file['mime'] ?>"><?= $file['link'] ?> <span class="size">(<?= $file['filesize'] ?>)</span></a>
+        <a href="<?= $file['href'] ?>" title="<?= $file['title'] ?>" type="<?= $file['mime'] ?>"><?= $file['link'] ?>
+            <span class="size">(<?= $file['filesize'] ?>)</span></a>
     </li>
     <?php endforeach; ?>
 </ul>
