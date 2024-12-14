@@ -12,4 +12,4 @@ Select multiple files and download them as a ZIP archive.
 - In the templates settings you select `content_element/downloads/multifile` template.
 - In the file picker area you can finally provide/select one or more files for the download.
 
-![Alt text](docs/element_settings.png?raw=true "Element settings")
+![Alt text](docs/backend.png?raw=true "Element settings")
