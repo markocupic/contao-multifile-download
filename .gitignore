@@ -1,0 +1,14 @@
+.git/
+
+# Jetbrains
+/.idea/*
+
+# tools
+/vendor/
+/tools/*/vendor
+/composer.lock
+/.php-cs-fixer.cache
+/tools/phpunit/.phpunit.result.cache
+
+# Webpack
+/node_modules/

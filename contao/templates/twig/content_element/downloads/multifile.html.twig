@@ -1,0 +1,55 @@
+{% trans_default_domain 'contao_default' %}
+{% extends "@Contao/content_element/_base.html.twig" %}
+{% use "@Contao/component/_list.html.twig" %}
+{% use "@Contao/component/_download.html.twig" %}
+
+{% block wrapper %}
+    {% set attributes = attrs(attributes|default)
+        .set('data-ismultifiledownload', 'true')
+        .set('data-contentelementid', data.id) %}
+    {{ parent() }}
+{% endblock %}
+
+{% block content %}
+    {# Add the stylesheet #}
+    {% add to head %}
+        <link rel="stylesheet" href="{{ insert_tag('asset::style.css::markocupic_contao_multifile_download') }}">
+    {% endadd %}
+
+    {# Add the script #}
+    {% add to body %}
+        <script src="{{ insert_tag('asset::script.js::markocupic_contao_multifile_download') }}"></script>
+    {% endadd %}
+
+    <div class="multifile-download--appear-checkbox-link-container">
+        <a href="#">{{ 'CTE.ce_downloads.downloadMultipleFiles'|trans }}</a>
+    </div>
+
+    {% with {items: downloads} %}{{ block('list_component') }}{% endwith %}
+    <div class="multifile-download--select-all-container display-none">
+        <a href="#">{{ 'CTE.ce_downloads.selectAll'|trans }}</a>
+    </div>
+
+    <div class="multifile-download--button-container display-none">
+        <button type="submit" class="multifile-download--submit-button">{{ 'CTE.ce_downloads.downloadButton'|trans }}</button>
+    </div>
+{% endblock %}
+
+{% block list_item_attributes %}
+    {{- attrs(list.item_attributes|default).addClass(['download-element', "ext-#{item.file.extension(true)}"]) -}}
+{% endblock %}
+
+{% block list_item %}
+    {% with {download: item} %}{{ block('download_component') }}{% endwith %}
+{% endblock %}
+
+{% block download_link_inner %}
+    <input class="multifile-download--checkbox" type="checkbox" value="{{ download.file.path|cmf_base64_encode }}"/>
+    {{ parent() }}
+{% endblock %}
+
+{% block list_attributes %}
+    {% set list_attributes = attrs(list_attributes|default)
+        .addClass('multifile-download--list') %}
+    {{ parent() }}
+{% endblock %}

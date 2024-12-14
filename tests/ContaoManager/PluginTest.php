@@ -1,9 +1,9 @@
 <?php
 
 /*
- * This file is part of Contao Multi File Download.
- * 
- * (c) Marko Cupic 2021 <m.cupic@gmx.ch>
+ * This file is part of Contao Multifile Download.
+ *
+ * (c) Marko Cupic <m.cupic@gmx.ch>
  * @license GPL-3.0-or-later
  * For the full copyright and license information,
  * please view the LICENSE file that was distributed with this source code.
@@ -20,11 +20,6 @@ use Contao\TestCase\ContaoTestCase;
 use Markocupic\ContaoMultifileDownload\ContaoManager\Plugin;
 use Markocupic\ContaoMultifileDownload\MarkocupicContaoMultifileDownload;
 
-/**
- * Class PluginTest
- *
- * @package Markocupic\ContaoMultifileDownload\Tests\ContaoManager
- */
 class PluginTest extends ContaoTestCase
 {
     /**
@@ -49,5 +44,4 @@ class PluginTest extends ContaoTestCase
         $this->assertSame(MarkocupicContaoMultifileDownload::class, $bundles[0]->getName());
         $this->assertSame([ContaoCoreBundle::class], $bundles[0]->getLoadAfter());
     }
-
 }

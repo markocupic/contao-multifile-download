@@ -7,4 +7,5 @@ cd..
 cd..
 cd..
 vendor\bin\ecs check vendor/markocupic/contao-multifile-download/src --fix --config vendor/markocupic/contao-multifile-download/.ecs/config/default.php
+
 cd vendor/markocupic/contao-multifile-download/.ecs./batch/fix
