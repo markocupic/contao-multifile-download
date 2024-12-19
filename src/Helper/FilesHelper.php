@@ -16,10 +16,12 @@ namespace Markocupic\ContaoMultifileDownload\Helper;
 
 use Contao\Config;
 use Contao\ContentModel;
-use Contao\Controller;
+use Contao\CoreBundle\Filesystem\FilesystemItem;
+use Contao\CoreBundle\Filesystem\FilesystemItemIterator;
+use Contao\CoreBundle\Filesystem\FilesystemUtil;
+use Contao\CoreBundle\Filesystem\VirtualFilesystem;
+use Contao\CoreBundle\Framework\Adapter;
 use Contao\CoreBundle\Framework\ContaoFramework;
-use Contao\File;
-use Contao\FilesModel;
 use Contao\FrontendUser;
 use Contao\StringUtil;
 use Contao\ZipWriter;
@@ -28,217 +30,138 @@ use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\Filesystem\Path;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 
 class FilesHelper
 {
-    private const ARCHIVE_NAME_PATTERN = 'downloads_multifile_%s_archive.zip';
-    private const TEMPORARY_FOLDER = 'system/tmp';
+    private const ARCHIVE_NAME_PATTERN = 'system/tmp/downloads_multifile_%s_archive.zip';
 
     public function __construct(
         private readonly ContaoFramework $framework,
-        private readonly LoggerInterface $contaoErrorLogger,
         private readonly Security $security,
+        private readonly VirtualFilesystem $filesStorage,
+        private readonly string $uploadPath,
         private readonly string $projectDir,
     ) {
     }
 
-    public function getFiles(Request $request, ContentModel $contentModel): Response|BinaryFileResponse
+    public function getFiles(Request $request, ContentModel $contentModel): array
     {
-        $arrFileIds = [];
+        $arrAllowed = [];
 
-        // Get allowed and valid files.
-        // Files must be selected in the content element!
-        $arrValidFileIds = $this->getAllowedFileIds($contentModel);
-
-        // Get file ids from $_GET
-        $arrFilePaths = array_map('base64_decode', explode(',', $request->query->get('files', true)));
-
-        $filesModel = $this->framework->getAdapter(FilesModel::class);
-
-        // Validate
-        foreach ($arrFilePaths as $filePath) {
-            $objFile = $filesModel->findByPath(Path::join('files', $filePath));
-
-            if (null === $objFile) {
-                $strText = sprintf('Could not find file with path %s in tl_files. System stopped!', $filePath);
-                $this->contaoErrorLogger->error($strText);
-
-                return new Response($strText, Response::HTTP_BAD_REQUEST);
-            }
-
-            $fileId = $objFile->id;
-
-            if (!\in_array($fileId, $arrValidFileIds, true)) {
-                $strText = sprintf('User is not allowed to download file ID %s (path: "%s"). System stopped!', $fileId, $objFile->path);
-                $this->contaoErrorLogger->error($strText);
-
-                return new Response($strText, Response::HTTP_BAD_REQUEST);
-            }
-
-            if (!is_file(Path::join($this->projectDir, $objFile->path))) {
-                $strText = sprintf('File with ID %s (path: "%s") does not exists in the filesystem. System stopped!', $fileId, $objFile->path);
-                $this->contaoErrorLogger->error($strText);
-
-                return new Response($strText, Response::HTTP_BAD_REQUEST);
-            }
-
-            $arrFileIds[] = $fileId;
+        foreach ($this->getFilesystemItems($contentModel) as $filesystemItem) {
+            $arrAllowed[] = $filesystemItem->getPath();
         }
 
-        if (empty($arrFileIds)) {
-            $strText = 'No valid files selected for the download!';
-            $this->contaoErrorLogger->error($strText);
+        // Grab base64 encoded file paths from $_GET
+        $arrWanted = array_map('base64_decode', explode(',', $request->query->get('files', true)));
 
-            return new Response($strText, Response::HTTP_BAD_REQUEST);
+        if (empty($arrWanted)) {
+            $strText = 'No files selected for the download!';
+
+            throw new \Exception($strText);
         }
 
-        // Send zip archive to the browser
-        return $this->getFileResponse($arrFileIds);
+        // Check if user is allowed
+        foreach ($arrWanted as $filePath) {
+            if (!\in_array($filePath, $arrAllowed, true)) {
+                $strText = sprintf('User is not allowed to download file "%s". System stopped!', $filePath);
+
+                throw new \Exception($strText);
+            }
+
+            if (!is_file(Path::join($this->projectDir, $this->uploadPath, $filePath))) {
+                $strText = sprintf('Only static files are supported. File "%s" does not exists in the filesystem. System stopped!', $filePath);
+
+                throw new \Exception($strText);
+            }
+        }
+
+        return array_map(fn ($path) => new \SplFileInfo(Path::join($this->projectDir, $this->uploadPath, $path)), $arrWanted);
     }
 
     /**
+     * @param array<\SplFileInfo> $arrSplFileInfo
+     *
      * @throws \Exception
      */
-    protected function getAllowedFileIds(ContentModel $contentModel): array
-    {
-        $arrValidFileIds = [];
-
-        $user = $this->security->getUser();
-
-        // Use the home directory of the current user as file source
-        if ($contentModel->useHomeDir && $user instanceof FrontendUser) {
-            if ($user->assignDir && $user->homeDir) {
-                $contentModel->multiSRC = [$user->homeDir];
-            }
-        } else {
-            $stringUtil = $this->framework->getAdapter(StringUtil::class);
-            $contentModel->multiSRC = $stringUtil->deserialize($contentModel->multiSRC, true);
-        }
-
-        // Return if there are no files
-        if (!\is_array($contentModel->multiSRC) || empty($contentModel->multiSRC)) {
-            return [];
-        }
-
-        $filesModel = $this->framework->getAdapter(FilesModel::class);
-
-        // Get the file entries from the database
-        $objFiles = $filesModel->findMultipleByUuids($contentModel->multiSRC);
-
-        $files = [];
-
-        $config = $this->framework->getAdapter(Config::class);
-
-        $allowedDownloads = explode(',', strtolower(trim((string) $config->get('allowedDownload'))));
-
-        // Get all files
-        while ($objFiles->next()) {
-            // Continue if the files has been processed or does not exist
-            if (isset($files[$objFiles->path]) || !file_exists(Path::join($this->projectDir, $objFiles->path))) {
-                continue;
-            }
-
-            // Add files
-            if ('file' === $objFiles->type) {
-                $objFile = new File($objFiles->path);
-
-                if (!\in_array($objFile->extension, $allowedDownloads, true) || preg_match('/^meta(_[a-z]{2})?\.txt$/', $objFile->basename)) {
-                    continue;
-                }
-
-                $files[$objFiles->path] = [
-                    'id' => $objFiles->id,
-                ];
-
-                $arrValidFileIds[] = $objFiles->id;
-            } else {
-                // Add files in a folder
-                $objSubfiles = $filesModel->findByPid($objFiles->uuid);
-
-                if (null === $objSubfiles) {
-                    continue;
-                }
-
-                while ($objSubfiles->next()) {
-                    // Skip subdirectories
-                    if ('folder' === $objSubfiles->type) {
-                        continue;
-                    }
-
-                    $objFile = new File($objSubfiles->path);
-
-                    if (!\in_array($objFile->extension, $allowedDownloads, true) || preg_match('/^meta(_[a-z]{2})?\.txt$/', $objFile->basename)) {
-                        continue;
-                    }
-
-                    // Add the file
-                    $files[$objSubfiles->path] = [
-                        'id' => $objSubfiles->id,
-                    ];
-                    $arrValidFileIds[] = $objSubfiles->id;
-                }
-            }
-        }
-
-        return $arrValidFileIds;
-    }
-
-    /**
-     * @throws \Exception
-     */
-    protected function getFileResponse(array $fileIds): BinaryFileResponse
+    public function getZipArchive(array $arrSplFileInfo): \SplFileInfo
     {
         // Set zip-archive name/path
-        $zipTargetPath = sprintf(
-            '%s/'.self::ARCHIVE_NAME_PATTERN,
-            self::TEMPORARY_FOLDER,
-            (string) time()
-        );
+        $targetPath = sprintf(self::ARCHIVE_NAME_PATTERN, (string) time());
 
         // Initialize archive object
-        $zip = new ZipWriter($zipTargetPath);
-
-        $filesModel = $this->framework->getAdapter(FilesModel::class);
+        $zip = new ZipWriter($targetPath);
 
         // Add files to zip-archive
-        foreach ($fileIds as $id) {
-            $objFile = $filesModel->findByPk($id);
-
-            if (null !== $objFile) {
-                if (is_file(Path::join($this->projectDir, $objFile->path))) {
-                    $zip->addFile($objFile->path, $objFile->name);
-                }
-            }
+        foreach ($arrSplFileInfo as $splFileInfo) {
+            $zip->addFile(Path::makeRelative($splFileInfo->getRealPath(), $this->projectDir), $splFileInfo->getBasename());
         }
 
         // Zip archive will be created only after closing object
         $zip->close();
 
-        $response = new BinaryFileResponse(Path::join($this->projectDir, $zipTargetPath));
-        $response->setContentDisposition(ResponseHeaderBag::DISPOSITION_ATTACHMENT, basename($zipTargetPath));
+        return new \SplFileInfo(Path::makeAbsolute($targetPath, $this->projectDir));
+    }
+
+    public function getBinaryFileResponse(\SplFileInfo $splFileInfo): BinaryFileResponse
+    {
+        $response = new BinaryFileResponse($splFileInfo->getRealPath());
+        $response->setContentDisposition(ResponseHeaderBag::DISPOSITION_ATTACHMENT, $splFileInfo->getBasename());
         $response->headers->set('Content-Type', 'application/zip');
         $response->deleteFileAfterSend();
 
         return $response;
     }
 
-    private function getLanguageData(): array
+    /**
+     * Retrieve selected filesystem items but filter out those, that do not match the
+     * current DCA and configuration constraints.
+     */
+    protected function getFilesystemItems(ContentModel $model): FilesystemItemIterator
     {
-        $controller = $this->framework->getAdapter(Controller::class);
-        $controller->loadLanguageFile('default');
+        $homeDir = null;
 
-        $arrJson = [];
-        $arrJson['done'] = 'true';
-        $lang = $GLOBALS['TL_LANG']['CTE']['ce_downloads'];
+        if ($model->useHomeDir) {
+            $user = $this->security->getUser();
 
-        if ($lang && \is_array($lang)) {
-            foreach ($GLOBALS['TL_LANG']['CTE']['ce_downloads'] as $k => $v) {
-                $arrJson[$k] = $v;
+            if ($user instanceof FrontendUser && $user->assignDir && $user->homeDir) {
+                $homeDir = $user->homeDir;
             }
         }
 
-        return $arrJson;
+        $sources = $homeDir ?: $model->multiSRC;
+
+        // Find filesystem items
+        $filesystemItems = FilesystemUtil::listContentsFromSerialized($this->filesStorage, $sources);
+
+        // Optionally filter out files without metadata
+        if ($model->metaIgnore) {
+            $filesystemItems = $filesystemItems->filter(
+                static fn (FilesystemItem $item): bool => (bool) $item->getExtraMetadata()->getLocalized()?->getDefault(),
+            );
+        }
+
+        return $this->applyDownloadableFileExtensionsFilter($filesystemItems);
+    }
+
+    protected function applyDownloadableFileExtensionsFilter(FilesystemItemIterator $filesystemItemIterator): FilesystemItemIterator
+    {
+        $this->framework->initialize();
+
+        $allowedDownload = StringUtil::trimsplit(',', $this->getContaoAdapter(Config::class)->get('allowedDownload'));
+
+        return $filesystemItemIterator->filter(
+            static fn (FilesystemItem $item): bool => \in_array(
+                Path::getExtension($item->getPath(), true),
+                array_map(strtolower(...), $allowedDownload),
+                true,
+            ),
+        );
+    }
+
+    protected function getContaoAdapter(string $class): Adapter
+    {
+        return $this->framework->getAdapter($class);
     }
 }

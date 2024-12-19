@@ -19,8 +19,10 @@ use Contao\CoreBundle\DependencyInjection\Attribute\AsHook;
 use Contao\CoreBundle\Exception\ResponseException;
 use Markocupic\ContaoMultifileDownload\Helper\FilesHelper;
 use Markocupic\ContaoMultifileDownload\Helper\TranslationHelper;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\HttpFoundation\Response;
 
 #[AsHook(MultifileDownloadsListener::HOOK, priority: 100)]
 class MultifileDownloadsListener
@@ -32,11 +34,12 @@ class MultifileDownloadsListener
         private readonly FilesHelper $filesHelper,
         private readonly RequestStack $requestStack,
         private readonly TranslationHelper $translationHelper,
+        private readonly ?LoggerInterface $contaoErrorLogger = null,
     ) {
     }
 
     /**
-     * Do not type hint third argument $element.
+     * Do not type hint the third argument $element.
      *
      * @param $contentElement
      */
@@ -55,8 +58,21 @@ class MultifileDownloadsListener
         }
 
         if ($this->isSendFilesToBrowserRequest($request, $contentModel)) {
-            // Send binary file response with the zip archive to the browser.
-            throw new ResponseException($this->filesHelper->getFiles($request, $contentModel));
+            try {
+                // Validate files.
+                $arrFiles = $this->filesHelper->getFiles($request, $contentModel);
+            } catch (\Exception $e) {
+                $this->contaoErrorLogger?->error($e->getMessage());
+                $response = new Response($e->getMessage(), Response::HTTP_BAD_REQUEST);
+
+                throw new ResponseException($response);
+            }
+
+            // Get the zip archive.
+            $zipArchive = $this->filesHelper->getZipArchive($arrFiles);
+
+            // Send the zip archive to the browser.
+            throw new ResponseException($this->filesHelper->getBinaryFileResponse($zipArchive));
         }
 
         return $strBuffer;
@@ -79,11 +95,15 @@ class MultifileDownloadsListener
 
     protected function isGetLanguageDataRequest(Request $request, ContentModel $contentModel): bool
     {
+        if ('downloads' !== $contentModel->type) {
+            return false;
+        }
+
         if (!$request->isXmlHttpRequest()) {
             return false;
         }
 
-        if ((int) $request->query->get('ce_id') !== (int) $contentModel->id) {
+        if ($contentModel->id !== (int) $request->query->get('ce_id')) {
             return false;
         }
 
@@ -100,6 +120,10 @@ class MultifileDownloadsListener
 
     protected function isSendFilesToBrowserRequest(Request $request, ContentModel $contentModel): bool
     {
+        if ('downloads' !== $contentModel->type) {
+            return false;
+        }
+
         if ('true' !== $request->query->get('multifile_download')) {
             return false;
         }
@@ -108,7 +132,7 @@ class MultifileDownloadsListener
             return false;
         }
 
-        if ((int) $contentModel->id !== (int) $request->query->get('el_id')) {
+        if ($contentModel->id !== (int) $request->query->get('el_id')) {
             return false;
         }
 

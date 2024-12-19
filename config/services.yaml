@@ -4,7 +4,9 @@ services:
         autoconfigure: true
         public: true
         bind:
+            $filesStorage: '@contao.filesystem.virtual.files'
             $projectDir: '%kernel.project_dir%'
+            $uploadPath: '%contao.upload_path%'
 
     Markocupic\ContaoMultifileDownload\:
         resource: ../src/
