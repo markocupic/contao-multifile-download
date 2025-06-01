@@ -127,6 +127,7 @@ class MultifileDownloadsListener
 
             // Get file ids from $_GET
             $arrIds = explode(',', base64_decode($request->query->get('files'), true));
+            $arrIds = array_map('intval', $arrIds);
 
             // Validate
             foreach ($arrIds as $fileId) {
@@ -296,7 +297,7 @@ class MultifileDownloadsListener
             }
         }
 
-        return $arrValidFileIds;
+        return array_map('intval', $arrValidFileIds);
     }
 
     /**
